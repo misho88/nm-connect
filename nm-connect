@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-from sys import exit, stdout
+from sys import exit, stdout, stderr
 from subprocess import run, PIPE
 from os import environ
-from shlex import split as split_command
+from shlex import split as split_command, join as join_command
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 CONNECTION_FIELDS = (
@@ -17,16 +17,20 @@ CONNECTION_SET_COMMAND = 'nmcli', 'connection'
 try:
     TTY_MENU_COMMAND = split_command(environ['NM_CONNECT_TTY_MENU'])
 except KeyError:
-    TTY_MENU_COMMAND = 'fzf', '--prompt=connection: '
+    TTY_MENU_COMMAND = (
+        'fzf', '--prompt=connection: ',
+        '--preview-window=top',
+        r'''--preview=nmcli connection show "$(sed 's/^.*: //' <<< {})"'''
+    )
 try:
     GUI_MENU_COMMAND = split_command(environ['NM_CONNECT_GUI_MENU'])
 except KeyError:
     GUI_MENU_COMMAND = 'rofi', '-dmenu', '-p', 'connection'
 
-epilog='''\
+epilog=f'''\
 default TTY and GUI menus:
-\tfzf '--prompt=connection: '
-\trofi -dmenu -p connection
+\t{join_command(TTY_MENU_COMMAND)}
+\t{join_command(GUI_MENU_COMMAND)}
 override with environment variables:
 \tNM_CONNECT_TTY_MENU
 \tNM_CONNECT_GUI_MENU
@@ -122,6 +126,7 @@ if args.connection is not None:
             'Available connections:',
             *lines,
             sep='\n',
+            file=stderr,
         )
         exit(1)
 else:
