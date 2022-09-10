@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+
+from sys import exit, stdout
+from subprocess import run, PIPE
+from os import environ
+from shlex import split as split_command
+from argparse import ArgumentParser
+
+CONNECTION_FIELDS = (
+        'name', 'uuid', 'type', 'timestamp', 'timestamp-real', 'autoconnect',
+        'autoconnect-priority', 'readonly', 'dbus-path', 'active', 'device',
+        'state', 'active-path', 'slave', 'filename',
+)
+CONNECTION_GET_COMMAND = 'nmcli', '-get-values', 'all', 'connection', 'show'
+CONNECTION_SET_COMMAND = 'nmcli', 'connection'
+
+try:
+    TTY_MENU_COMMAND = split_command(environ['NM_CONNECT_TTY_MENU'])
+except KeyError:
+    TTY_MENU_COMMAND = 'fzf', '--prompt=connection: '
+try:
+    GUI_MENU_COMMAND = split_command(environ['NM_CONNECT_GUI_MENU'])
+except KeyError:
+    GUI_MENU_COMMAND = 'rofi', '-dmenu', '-p', 'connection'
+
+parser = ArgumentParser(description='toggle NetworkManager connections')
+parser.add_argument('connection', nargs='?', help='the connection to toggle (without menu)')
+menu_group = parser.add_mutually_exclusive_group()
+menu_group.add_argument('--menu', '-m', help='menu command to use (e.g., dmenu)')
+menu_group.add_argument('--gui', '-g', action='store_true', help='force the use of the GUI menu')
+menu_group.add_argument('--tty', '-t', action='store_true', help='force the use of the TTY menu')
+args = parser.parse_args()
+
+if args.menu is not None:
+    menu_command = split_command(args.menu)
+elif args.gui:
+    menu_command = GUI_MENU_COMMAND
+elif args.tty:
+    menu_command = TTY_MENU_COMMAND
+else:
+    menu_command = TTY_MENU_COMMAND if stdout.isatty() else GUI_MENU_COMMAND
+
+
+def connection_set_command(connection, down=False):
+    args = 'down' if down else 'up', connection
+    return CONNECTION_SET_COMMAND + args
+
+
+def split_idx(line: str):
+    I = C = None
+    for i, c in enumerate(line):
+        if c == ':' and C != '\\':
+            yield I, i
+            I = i + 1
+        C = c
+    yield I, None
+
+
+def split(line: str):
+    for i, j in split_idx(line):
+        yield line[i:j].replace('\\:', ':')
+
+
+def connection(values):
+    c = dict(zip(CONNECTION_FIELDS, values))
+    assert len(CONNECTION_FIELDS) == len(c)
+    c['timestamp'] = int(c['timestamp'])
+    return c
+
+
+def sorted_connection_names(connections):
+    return sorted(connections.keys(), key=lambda n: -connections[n]['timestamp'])
+
+
+def connection_line(connection):
+    name = connection['name']
+    type = connection['type']
+    up = '✔ ' if connection['state'] == 'activated' else '✘ '
+    return f'{up}{type}: {name}'
+
+
+def name_from_stdout(stdout):
+    line = stdout.decode()
+    i = line.index(': ') + 2
+    j = len(line) - int(line[-1] == '\n')
+    return line[i:j]
+
+
+result = run(CONNECTION_GET_COMMAND, stdout=PIPE)
+if result.returncode:
+    exit(result.returncode)
+
+output = result.stdout.decode()
+connections = {}
+for line in output.splitlines():
+    c = connection(split(line))
+    connections[c['name']] = c
+
+lines = (
+    connection_line(connections[name])
+    for name in sorted_connection_names(connections)
+)
+
+if args.connection is not None:
+    try:
+        conn = connections[args.connection]
+    except KeyError:
+        print(
+            f'nm-connect: no such connection: {args.connection}',
+            'Available connections:',
+            *lines,
+            sep='\n',
+        )
+        exit(1)
+else:
+    result = run(menu_command, input='\n'.join(lines).encode(), stdout=PIPE)
+    if result.returncode:
+        exit(result.returncode)
+    conn = connections[name_from_stdout(result.stdout)]
+
+result = run(connection_set_command(conn['uuid'], conn['state'] == 'activated'), stdout=PIPE)
+if result.returncode:
+    exit(result.returncode)
