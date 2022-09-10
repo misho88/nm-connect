@@ -14,6 +14,9 @@ $ nm-connect connection_name # toggle connection noninteractively
 ```
 
 # requirements
+
 NetworkManager and `nmcli`
+
 Python 3.6+
+
 by default, fzf and rofi, but you can use a custom menu command, too
