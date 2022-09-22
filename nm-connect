@@ -25,7 +25,7 @@ except KeyError:
 try:
     GUI_MENU_COMMAND = split_command(environ['NM_CONNECT_GUI_MENU'])
 except KeyError:
-    GUI_MENU_COMMAND = 'rofi', '-dmenu', '-p', 'connection'
+    GUI_MENU_COMMAND = 'rofi', '-dmenu', '-i', '-p', 'connection'
 
 epilog=f'''\
 default TTY and GUI menus:
